@@ -13,11 +13,6 @@
     "module": "commonjs",
     "esModuleInterop": true
   },
-  "include": [
-    "**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "**/*.spec.ts"
-  ]
+  "include": ["**/*"],
+  "exclude": ["node_modules", "**/*.spec.ts"]
 }

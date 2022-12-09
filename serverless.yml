@@ -11,7 +11,7 @@
 #
 # Happy Coding!
 
-service: websocket-server-api-gw
+service: aqua-stat-websocket-server-handler
 # app and org for use with dashboard.serverless.com
 #app: your-app-name
 #org: your-org-name
@@ -28,7 +28,7 @@ provider:
 
   # you can overwrite defaults here
   #  stage: dev
-  region: eu-west-2
+  region: us-west-1
 
   # you can add statements to the Lambda function's IAM Role here
   iam:
@@ -36,14 +36,95 @@ provider:
       statements:
         - Effect: Allow
           Action:
+            - "dynamodb:GetItem"
+            - "dynamodb:PutItem"
+            - "dynamodb:DeleteItem"
+            - "dynamodb:Scan"
+          Resource:
+            - { "Fn::GetAtt": ["ExternalControlScheduleTable", "Arn"] }
+
+        - Effect: Allow
+          Action:
+            - "dynamodb:GetItem"
+            - "dynamodb:PutItem"
+          Resource:
+            - { "Fn::GetAtt": ["UsersTable", "Arn"] }
+
+        - Effect: Allow
+          Action:
+            - "dynamodb:GetItem"
             - "dynamodb:PutItem"
             - "dynamodb:DeleteItem"
             - "dynamodb:Scan"
           Resource:
             - { "Fn::GetAtt": ["ClientsTable", "Arn"] }
 
+        - Effect: Allow
+          Action:
+            - "dynamodb:GetItem"
+            - "dynamodb:PutItem"
+            - "dynamodb:DeleteItem"
+            - "dynamodb:Scan"
+          Resource:
+            - { "Fn::GetAtt": ["DevicesTable", "Arn"] }
+
+        - Effect: Allow
+          Action:
+            - "dynamodb:Query"
+          Resource:
+            Fn::Join:
+              - "/"
+              - - { "Fn::GetAtt": ["ClientsTable", "Arn"] }
+                - "index"
+                - "*"
+
+        - Effect: Allow
+          Action:
+            - "dynamodb:GetItem"
+            - "dynamodb:PutItem"
+            - "dynamodb:DeleteItem"
+            - "dynamodb:Scan"
+          Resource:
+            - { "Fn::GetAtt": ["DeviceKeysTable", "Arn"] }
+
+        - Effect: Allow
+          Action:
+            - "dynamodb:GetItem"
+          Resource:
+            - { "Fn::GetAtt": ["ApiClientsTable", "Arn"] }
+
+        - Effect: Allow
+          Action:
+            - "s3:GetObject"
+          Resource:
+            Fn::Join:
+              - ""
+              - - "arn:aws:s3:::"
+                - ${self:provider.environment.FIRMWARE_BUCKET_NAME}
+                - "/*"
+
+        - Effect: Allow
+          Action:
+            - "s3:ListBucket"
+          Resource:
+            Fn::Join:
+              - ""
+              - - "arn:aws:s3:::"
+                - ${self:provider.environment.FIRMWARE_BUCKET_NAME}
+
   environment:
-    CLIENTS_TABLE_NAME: ${self:provider.stage}WSClients-v2
+    ACCOUNT_ID: ${aws:accountId}
+    REGION: ${aws:region}
+    EXTERNAL_CONTROL_SCHEDULE_TABLE_NAME: ${self:provider.stage}AquaStatExternalControlSchedule
+    CLIENTS_TABLE_NAME: ${self:provider.stage}AquaStatWSClients
+    DEVICE_ID_INDEX_NAME: ${self:provider.stage}DeviceIdIndex
+    DEVICES_TABLE_NAME: ${self:provider.stage}AquaStatDevices
+    DEVICE_KEYS_TABLE_NAME: ${self:provider.stage}AquaStatDeviceKeys
+    USERS_TABLE_NAME: ${self:provider.stage}AquaStatUsers
+    API_CLIENTS_TABLE_NAME: ${self:provider.stage}AquaStatApiClients
+    HMAC_API_CLIENTS_SECRET_KEY: ${env:HMAC_API_CLIENTS_SECRET_KEY}
+    HMAC_USERS_SECRET_KEY: ${env:HMAC_USERS_SECRET_KEY}
+    FIRMWARE_BUCKET_NAME: ${self:provider.stage}-aquastat-firmware-binaries
     WSSAPIGATEWAYENDPOINT:
       Fn::Join:
         - ""
@@ -53,38 +134,53 @@ provider:
           - Ref: AWS::Region
           - ".amazonaws.com/${sls:stage}"
 
-#  iam:
-#    role:
-#      statements:
-#        - Effect: "Allow"
-#          Action:
-#            - "s3:ListBucket"
-#          Resource: { "Fn::Join" : ["", ["arn:aws:s3:::", { "Ref" : "ServerlessDeploymentBucket" } ] ]  }
-#        - Effect: "Allow"
-#          Action:
-#            - "s3:PutObject"
-#          Resource:
-#            Fn::Join:
-#              - ""
-#              - - "arn:aws:s3:::"
-#                - "Ref" : "ServerlessDeploymentBucket"
-#                - "/*"
-
-# you can define service wide environment variables here
-#  environment:
-#    variable1: value1
-
-# you can add packaging information here
-#package:
-#  patterns:
-#    - '!exclude-me.js'
-#    - '!exclude-me-dir/**'
-#    - include-me.js
-#    - include-me-dir/**
+  s3:
+    firmwareBucket:
+      name: ${self:provider.environment.FIRMWARE_BUCKET_NAME}
 
 functions:
+  firmwareUpgrade:
+    handler: src/firmware-upgrade.execute
+    events:
+      - s3:
+          bucket: firmwareBucket
+          event: s3:ObjectCreated:*
+          rules:
+            - suffix: .bin
+
+  httpHandler:
+    handler: src/http-handler.handle
+    events:
+      - httpApi:
+          path: /api/sign-in
+          method: POST
+      - httpApi:
+          path: /api/sign-up
+          method: POST
+      - httpApi:
+          path: /api/authenticate
+          method: POST
+      - httpApi:
+          path: /api/schedule
+          method: PUT
+      - httpApi:
+          path: /api/schedule/weekday/{day}
+          method: PUT
+      - httpApi:
+          path: /api/schedule
+          method: GET
+      - httpApi:
+          path: /api/schedule/weekday/{day}
+          method: GET
+      - httpApi:
+          path: /api/schedule/now
+          method: PUT
+      - httpApi:
+          path: /api/sensor-readings
+          method: GET
+
   websocketHandler:
-    handler: src/handlers.handle
+    handler: src/ws-handler.handle
     events:
       - websocket:
           route: $connect
@@ -92,50 +188,17 @@ functions:
           route: $disconnect
       - websocket:
           route: msg
-
-#    The following are a few example events you can configure
-#    NOTE: Please make sure to change your handler code to work with those events
-#    Check the event documentation for details
-#    events:
-#      - httpApi:
-#          path: /users/create
-#          method: get
-#      - websocket: $connect
-#      - s3: ${env:BUCKET}
-#      - schedule: rate(10 minutes)
-#      - sns: greeter-topic
-#      - stream: arn:aws:dynamodb:region:XXXXXX:table/foo/stream/1970-01-01T00:00:00.000
-#      - alexaSkill: amzn1.ask.skill.xx-xx-xx-xx
-#      - alexaSmartHome: amzn1.ask.skill.xx-xx-xx-xx
-#      - iot:
-#          sql: "SELECT * FROM 'some_topic'"
-#      - cloudwatchEvent:
-#          event:
-#            source:
-#              - "aws.ec2"
-#            detail-type:
-#              - "EC2 Instance State-change Notification"
-#            detail:
-#              state:
-#                - pending
-#      - cloudwatchLog: '/aws/lambda/hello'
-#      - cognitoUserPool:
-#          pool: MyUserPool
-#          trigger: PreSignUp
-#      - alb:
-#          listenerArn: arn:aws:elasticloadbalancing:us-east-1:XXXXXX:listener/app/my-load-balancer/50dc6c495c0c9188/
-#          priority: 1
-#          conditions:
-#            host: example.com
-#            path: /hello
-
-#    Define function environment variables here
-#    environment:
-#      variable2: value2
+      - websocket:
+          route: signUp
+      - websocket:
+          route: firmwareCheck
+      - websocket:
+          route: request
+      - websocket:
+          route: response
 
 plugins:
   - serverless-plugin-typescript
-# you can add CloudFormation resource templates here
 
 resources:
   Resources:
@@ -143,12 +206,76 @@ resources:
       Type: AWS::DynamoDB::Table
       Properties:
         TableName: ${self:provider.environment.CLIENTS_TABLE_NAME}
-        ProvisionedThroughput:
-          ReadCapacityUnits: 1
-          WriteCapacityUnits: 1
+        BillingMode: PAY_PER_REQUEST
         AttributeDefinitions:
           - AttributeName: connectionId
             AttributeType: S
+          - AttributeName: DeviceId
+            AttributeType: S
         KeySchema:
           - AttributeName: connectionId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: ${self:provider.environment.DEVICE_ID_INDEX_NAME}
+            KeySchema:
+              - AttributeName: DeviceId
+                KeyType: HASH
+            Projection:
+              ProjectionType: "ALL"
+
+    DevicesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.DEVICES_TABLE_NAME}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: DeviceId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: DeviceId
+            KeyType: HASH
+
+    UsersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.USERS_TABLE_NAME}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: UserEmail
+            AttributeType: S
+        KeySchema:
+          - AttributeName: UserEmail
+            KeyType: HASH
+    DeviceKeysTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.DEVICE_KEYS_TABLE_NAME}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: KeyId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: KeyId
+            KeyType: HASH
+    ApiClientsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.API_CLIENTS_TABLE_NAME}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: ApiClientId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: ApiClientId
+            KeyType: HASH
+    ExternalControlScheduleTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.EXTERNAL_CONTROL_SCHEDULE_TABLE_NAME}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: DayIndex
+            AttributeType: N
+        KeySchema:
+          - AttributeName: DayIndex
             KeyType: HASH

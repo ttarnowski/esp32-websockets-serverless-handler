@@ -5,21 +5,34 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "deploy": "serverless deploy"
+    "deploy": "source ./scripts/set-env.sh && serverless deploy",
+    "deploy-staging": "source ./scripts/set-env.sh && serverless deploy --stage staging",
+    "logs-ws": "aws logs tail /aws/lambda/aqua-stat-websocket-server-handler-staging-websocketHandler --follow --region=us-west-1",
+    "logs-http": "aws logs tail /aws/lambda/aqua-stat-websocket-server-handler-staging-httpHandler --follow --region=us-west-1"
   },
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "@types/aws-lambda": "^8.10.102",
+    "@types/cookie": "^0.5.1",
+    "@types/jsonwebtoken": "^8.5.9",
     "@types/node": "^18.7.13",
     "prettier": "^2.7.1",
     "serverless": "^3.22.0",
+    "serverless-parameters": "^0.1.0",
     "serverless-plugin-typescript": "^2.1.2",
     "typescript": "^4.7.4"
   },
   "dependencies": {
     "@aws-sdk/client-apigatewaymanagementapi": "^3.159.0",
-    "@aws-sdk/client-dynamodb": "^3.159.0",
-    "aws-lambda": "^1.0.7"
+    "@aws-sdk/client-dynamodb": "^3.190.0",
+    "@aws-sdk/client-s3": "^3.226.0",
+    "@types/uuid": "^8.3.4",
+    "aws-lambda": "^1.0.7",
+    "cookie": "^0.5.0",
+    "http-status-codes": "^2.2.0",
+    "joi": "^17.6.4",
+    "jsonwebtoken": "^8.5.1",
+    "uuid": "^9.0.0"
   }
 }
